@@ -1,0 +1,80 @@
+#include "ets_sys.h"
+#include "osapi.h"
+#include "gpio.h"
+#include "user_interface.h"
+
+// Define GPIO pins
+#define LED_PIN 2        // LED connected to GPIO2
+#define TRIG_PIN 12      // Trigger pin of ultrasonic sensor (GPIO12)
+#define ECHO_PIN 14      // Echo pin of ultrasonic sensor (GPIO14)
+
+// Function to create a delay in milliseconds
+void delay_ms(uint32_t ms) {
+    os_delay_us(ms * 1000); // Convert to microseconds
+}
+
+// Function to initialize GPIO pins
+void init_gpio() {
+    gpio_init();
+    
+    // Set GPIO functions
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);    // LED
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTCK_U, FUNC_GPIO12);   // TRIG
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14);   // ECHO
+    
+    // Set LED and Trigger as output, Echo as input
+    gpio_output_set(0, 0, (1 << LED_PIN) | (1 << TRIG_PIN), (1 << ECHO_PIN));
+}
+
+// Function to measure distance from ultrasonic sensor
+int get_distance() {
+    // Send a 10µs pulse to trigger pin
+    gpio_output_set(1 << TRIG_PIN, 0, 1 << TRIG_PIN, 0);
+    delay_ms(10);
+    gpio_output_set(0, 1 << TRIG_PIN, 1 << TRIG_PIN, 0);
+
+    // Wait for echo pin to go HIGH
+    while (!(gpio_input_get() & (1 << ECHO_PIN))) {
+        // Timeout after a while
+    }
+
+    // Measure time while echo pin is HIGH
+    uint32 start_time = system_get_time();
+    while (gpio_input_get() & (1 << ECHO_PIN)) {
+        // Timeout if too long
+        if ((system_get_time() - start_time) > 30000) {
+            return -1; // Timeout
+        }
+    }
+    
+    // Calculate duration in microseconds
+    uint32 duration = system_get_time() - start_time;
+
+    // Convert to centimeters (speed of sound = 343 m/s)
+    int distance = duration / 58; // distance in cm
+
+    return distance;
+}
+
+// Main function
+void user_init(void) {
+    // Initialize serial output and GPIOs
+    uart_div_modify(0, UART_CLK_FREQ / 115200);
+    os_printf("System Initialized\n");
+
+    init_gpio();
+
+    while (1) {
+        int distance = get_distance();
+        os_printf("Distance: %d cm\n", distance);
+
+        // If object is closer than 10 cm, turn LED ON, else OFF
+        if (distance > 0 && distance <= 10) {
+            gpio_output_set(1 << LED_PIN, 0, 1 << LED_PIN, 0); // LED ON
+        } else {
+            gpio_output_set(0, 1 << LED_PIN, 1 << LED_PIN, 0); // LED OFF
+        }
+
+        delay_ms(1000); // Wait 1 second before next measurement
+    }
+}
